@@ -8,8 +8,16 @@ at zero token cost. Questions that do not match fall through to your model
 with structured context attached — reducing prompt size on partial hits.
 Every resolved card is committed back, so the hit rate improves continuously.
 
-**Primary metric:** 73–80% token reduction on warm queries across document-heavy
-workloads (insurance, legal, regulatory, codebase onboarding).
+**Primary metric:** 73–80% reduction in inference cost on warm (previously-seen) queries
+across document-heavy workloads.[^1]
+
+[^1]: Baseline is **engine disabled entirely** — i.e. the typical current-state cost of
+    asking an LLM the same question repeatedly with no caching layer at all, not a
+    cold-vs-warm comparison within the engine itself. Per-run savings measured at
+    73–77% on the first warm pass after a question is cached; the all-time ratio
+    reaches ~80% as the card store matures and more questions hit recall. Verified
+    with real LLM API calls, engine-on vs. engine-off. See
+    [docs/TEST-EVIDENCE.md](docs/TEST-EVIDENCE.md) for methodology and test coverage.
 
 ---
 
@@ -76,32 +84,11 @@ staged output. Run a single scenario with `-s insurance` (or `legal` /
 `regulatory` / `provenance` / `fedfsr` / `stress`).
 
 The VS Code extension (Alpha) is available as a `.vsix` on the
-[Releases](../../releases) page.
+[Releases](https://github.com/leangridlabs/SCE-Public/releases) page.
 
-### Docker (recommended, for your own deployment)
-
-```bash
-# 1. Copy config
-cp config.local.example.json config.local.json
-# edit api_keys and data_dir as needed
-
-# 2. Start
-docker compose up -d
-
-# 3. Verify
-curl http://localhost:35100/ready
-```
-
-### Pre-built binary
-
-```bash
-./sce-server
-# or with explicit config
-SCE_CONFIG=/path/to/config.local.json ./sce-server
-```
-
-The server starts on `:35100` by default. `/ready` returns `200` once the
-database and embedding model are fully initialised.
+For a self-hosted deployment (your own config, API keys, and data directory),
+contact [leangridlabs.com](https://leangridlabs.com) — this repo is a public
+distribution front door, not the deployable source package.
 
 ---
 
