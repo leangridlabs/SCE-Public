@@ -77,11 +77,18 @@ docker pull ghcr.io/leangridlabs/sce-demo-verticals:latest
 docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest
 ```
 
-Runs a real compiled `sce-server` plus five scripted multi-agent demo scenarios
-(insurance, legal, regulatory, a real-document compounding cache-warming test,
-and human-auditable provenance) — full unedited terminal transcripts, no
-staged output. Run a single scenario with `-s insurance` (or `legal` /
-`regulatory` / `provenance` / `fedfsr` / `stress`).
+Runs a real compiled `sce-server` plus scripted demo scenarios — full unedited
+terminal transcripts, no staged output. Defaults to running all five story
+scenarios in sequence; run one at a time with `-s <name>`:
+
+| `-s` name | What it tests |
+|---|---|
+| `insurance` | Shared recall across a team of agents (Policy → Claims/Compliance/Fraud), plus a cross-namespace isolation check — a different carrier's agent asking the same question correctly gets nothing back |
+| `legal` | Reasoning graph — Contract → Compliance → Risk → Negotiation, each card `depends_on` the last, not just repeated recall |
+| `regulatory` | 4-agent chain-of-custody (Interpretation → Compliance → Enforcement → Audit) over a real regulation, then a live amendment triggers cascade invalidation and full re-derivation |
+| `fedfsr` | Compounding cache-warming against a real 75-page public document (Fed Financial Stability Report) — hit rate measured after each of 4 rounds, plus its own P50/P95 latency footer |
+| `provenance` | Human-auditable — walks the real `/cards/{id}/audit` chain hop-by-hop back to the source document, showing content-hash integrity at each link |
+| `stress` *(bonus, not part of the 5-scenario story)* | Bulk-commits 10,000 cards, then measures exact/paraphrase resolve latency against pass/fail thresholds. **Note:** at this volume you may see a `WARN cascade invalidation hit safety cap` line during cleanup — this is a bounded safety limit on the dependent-cascade walk firing as designed (all 10,000 cards still purge correctly, zero errors); it is not a failure. |
 
 The VS Code extension (Alpha) is available as a `.vsix` on the
 [Releases](https://github.com/leangridlabs/SCE-Public/releases) page.
