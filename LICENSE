@@ -1,0 +1,26 @@
+Copyright (c) 2026 LeanGrid Labs. All Rights Reserved.
+
+This software and its source code, compiled binaries, documentation, and all
+associated files ("Software") are the proprietary and confidential property of
+LeanGrid Labs.
+
+ACCESS
+This build is distributed exclusively to individually authorized testers under
+a confidentiality agreement with LeanGrid Labs. Access does not constitute a
+license beyond the evaluation terms explicitly granted in writing by LeanGrid Labs.
+
+RESTRICTIONS
+- You may not copy, share, distribute, publish, sublicense, sell, or transfer
+  the Software or any portion thereof to any third party.
+- You may not use the Software for any commercial purpose, in any production
+  environment, or on behalf of any organization other than yourself.
+- You may not reverse engineer, decompile, disassemble, or attempt to derive
+  the source code of any compiled or obfuscated component of the Software.
+- You may not disclose the existence, features, performance, or findings
+  related to this build without prior written approval from LeanGrid Labs.
+- Redistribution in any form is strictly prohibited.
+
+DISCLAIMER
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL LEANGRID LABS BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY ARISING FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
