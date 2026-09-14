@@ -90,6 +90,33 @@ scenarios in sequence; run one at a time with `-s <name>`:
 | `provenance` | Human-auditable — walks the real `/cards/{id}/audit` chain hop-by-hop back to the source document, showing content-hash integrity at each link |
 | `stress` *(bonus, not part of the 5-scenario story)* | Bulk-commits 10,000 cards, then measures exact/paraphrase resolve latency against pass/fail thresholds. **Note:** at this volume you may see a `WARN cascade invalidation hit safety cap` line during cleanup — this is a bounded safety limit on the dependent-cascade walk firing as designed (all 10,000 cards still purge correctly, zero errors); it is not a failure. |
 
+**Run a specific scenario:**
+
+```bash
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s insurance
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s legal
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s regulatory
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s provenance
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s fedfsr
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s stress
+```
+
+**With real OpenAI reasoning** (insurance/legal/regulatory/provenance support
+this — otherwise they fall back to clearly-labeled simulated answers):
+
+```bash
+# PowerShell (Windows)
+$env:OPENAI_API_KEY = "sk-..."
+docker run --rm -e OPENAI_API_KEY=$env:OPENAI_API_KEY ghcr.io/leangridlabs/sce-demo-verticals:latest -s insurance
+
+# bash/zsh (macOS/Linux)
+export OPENAI_API_KEY="sk-..."
+docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY ghcr.io/leangridlabs/sce-demo-verticals:latest -s insurance
+```
+
+The key is only ever passed at container-launch time via the environment —
+it is never baked into the image and never touches SCE's own storage layer.
+
 The VS Code extension (Alpha) is available as a `.vsix` on the
 [Releases](https://github.com/leangridlabs/SCE-Public/releases) page.
 
