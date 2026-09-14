@@ -169,17 +169,17 @@ namespace B.
 
 ---
 
-## Key Management
+## Key Management (Planned)
 
-Private signing keys are **never** stored in plaintext on disk or embedded
-in the binary. The server integrates with the host's native key store:
+Ed25519-based card/attestation signing is on the roadmap — **not yet built or
+shipped**. The design intent is for private signing keys to never be stored
+in plaintext on disk or embedded in the binary, integrating with the host's
+native key store (AWS KMS, Azure Key Vault, or OS Keychain) once implemented.
+Nothing below this line reflects current, shipped behavior.
 
-- AWS environments: AWS KMS
-- Azure environments: Azure Key Vault
-- Developer workstations: OS Keychain (Windows Credential Manager, macOS Keychain, Linux SecretService)
-
-Signing operations execute in-memory via sealed key access. The key material
-is not written to any log or response payload.
+The demo `regulatory` scenario's attestation "signature" today is a local
+SHA-256 hash computed in the demo script itself, illustrating the intended
+chain-of-custody shape — it is not the planned Ed25519/KMS implementation.
 
 ---
 

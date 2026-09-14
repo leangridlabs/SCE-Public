@@ -102,22 +102,23 @@ corrupted records, or server errors.
 
 ## SQLite Stress Test (sqlite_stress_test.py)
 
-**Setup:** 10,000 mock cards committed (10,527-card store at time of timing). 500
-cards sampled; 1,000 total resolve queries issued (one exact-match and one
-paraphrase per card), with the LRU fast-lane bypassed so every query hits SQLite.
+**Setup:** 10,000 mock cards committed via 20 concurrent workers, then LRU cache
+flushed to force a cold SQLite path. 500 cards sampled; 1,000 total resolve
+queries issued (one exact-match and one paraphrase per sampled card).
 
-**Measured latency (live run):**
+**Measured latency (re-verified live run, 2026-09-14, against the published
+`ghcr.io/leangridlabs/sce-demo-verticals` image):**
 
 | Query type | P50 | P95 | P99 | Threshold (P99) | Result |
 |---|---|---|---|---|---|
-| Exact match | 8.3 ms | 10.6 ms | 18.9 ms | ≤ 100 ms | PASS |
-| Paraphrase (semantic) | 1,190.9 ms | 1,253.1 ms | 1,362.3 ms | ≤ 2,500 ms | PASS |
+| Exact match | 13.8 ms | 19.3 ms | 25.8 ms | ≤ 100 ms | PASS |
+| Paraphrase (semantic) | 35.2 ms | 46.4 ms | 56.0 ms | ≤ 2,500 ms | PASS |
 
 **What this proves:** paraphrase latency is dominated by embedding-model CPU
 inference, not storage — the P50→P99 spread for paraphrase queries is only
-172ms, meaning SQLite/hashing overhead stays negligible even at 10,500+ cards.
-Write throughput: 10,000 cards committed in 390s (26 cards/s) with 20 concurrent
-workers, WAL mode, zero errors.
+~21ms, meaning SQLite/hashing overhead stays negligible even at 10,000 cards.
+Write throughput: 10,000 cards committed in 103.1s (97 cards/s) with 20
+concurrent workers, WAL mode, zero errors.
 
 ---
 
@@ -237,30 +238,34 @@ Proves the Python SDK that framework adapters are built on top of.
 
 ---
 
-## Running the Tests Yourself
+## Running This Yourself
 
-All scripts require `pip install requests` and a running SCE server.
+The full internal test suite (listed above) runs against the private source
+repository and isn't included in this public distribution — this repo ships
+the compiled server plus the demo scenarios, not the test harnesses.
+
+What you *can* run from this image, with zero setup beyond Docker:
 
 ```bash
-# Start server first (Docker or binary)
-docker compose up -d
-# or
-./sce-server
+docker pull ghcr.io/leangridlabs/sce-demo-verticals:latest
 
-# Core suites
-python scripts/acceptance_test.py
-python scripts/milestone_test.py
-python scripts/concurrent_write_purge_test.py
-python scripts/sqlite_stress_test.py --cards 10000 --queries 500
-python scripts/ingest_coverage_test.py
+# All 5 story scenarios in sequence
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest
 
-# Governance and audit suites (require a server with named API keys configured)
-python scripts/card_audit_test.py
-python scripts/namespace_isolation_test.py
-python scripts/supersession_governance_test.py
+# Or one at a time
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s insurance
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s legal
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s regulatory
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s provenance
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s fedfsr
 
-# Gate correctness suite (requires a server with sss_precision and dksa_precision set)
-python scripts/sss_dksa_gate_test.py
+# Bonus: 10,000-card bulk load + exact/paraphrase resolve latency thresholds
+docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s stress
+```
+
+Each scenario prints its own full, unedited terminal transcript — including the
+`provenance` scenario's live `/cards/{id}/audit` walk and the `stress` scenario's
+PASS/FAIL latency threshold table — against a real compiled `sce-server`, not a stub.
 
 # Gateway suite (tool-chain live test requires a real provider API key)
 python scripts/gateway_smoke_test.py
