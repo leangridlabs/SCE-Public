@@ -118,7 +118,12 @@ The key is only ever passed at container-launch time via the environment —
 it is never baked into the image and never touches SCE's own storage layer.
 
 The VS Code extension (Alpha) is available as a `.vsix` on the
-[Releases](https://github.com/leangridlabs/SCE-Public/releases) page.
+[Releases](https://github.com/leangridlabs/SCE-Public/releases) page. **Note:**
+the VSIX and the Rust `sce-server` (this Docker image) are two different
+products sharing the same caching approach — the VSIX does **not** include the
+human-auditable provenance/audit-trail endpoints (`/cards/{id}/audit`,
+`integrity_verified` tamper detection) shown in the `provenance` scenario
+above. That capability is currently Rust-server-only.
 
 For a self-hosted deployment (your own config, API keys, and data directory),
 contact [leangridlabs.com](https://leangridlabs.com) — this repo is a public
