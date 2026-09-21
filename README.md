@@ -228,7 +228,11 @@ Cold-miss lookup overhead: ~12–18 ms before forwarding to the model provider.
 
 ## Status
 
-**Stage 1 — Developer Alpha.** In-room group testing underway.
+**Stage 1 — Developer Alpha.** In-room group testing- Complete.
+**Stage 2 — Beta 1.** Initial Rust server install and demo script pass- Complete
+**Stage 3 — Beta 2.** Full Orchestration runs against server- Targeted for October
+    -Currently running soak test and stress test to prepare for Beta 2
+
 Enterprise pilot planned for late 2026 pending alpha evidence report.
 
 Contact: [leangridlabs.com](https://leangridlabs.com)
