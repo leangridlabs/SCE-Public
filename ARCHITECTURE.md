@@ -200,7 +200,9 @@ rotatable secret, a bound namespace, and an optional permission list.
 - **Namespace** — the data silo. All cards committed with a key go to its
   namespace. All recalls are filtered to that namespace.
 - **Permissions** — optional capability grants. Currently defined:
-  `supersession_approve` (required to confirm or reject supersession candidates).
+  `supersession_approve` (required to confirm or reject supersession candidates)
+  and `audit_read_any` (required for a key to read `/cards/:id/audit` outside its
+  own namespace).
 
 The namespace filter is applied by the authentication middleware before any
 handler code executes. There is no caller-provided parameter that can override
@@ -286,6 +288,12 @@ When named API keys are configured, the key resolves to a bound namespace
 and permission set (see Named API Key Model above). The server refuses to
 bind on a non-loopback address with no keys configured.
 
+`GET /cards/:id/audit` is namespace-scoped: a key may read audit records for
+its own namespace only, unless it holds the `audit_read_any` permission — that
+endpoint is where excluded-from-recall, potentially PII-bearing (`indexable:
+false`) content actually lives, so cross-namespace access must be a deliberate,
+named grant.
+
 ### Probes
 
 ```
@@ -350,7 +358,17 @@ new card before being returned unmodified. Tool-calling conversations are suppor
 the mid-loop round where a model requests a tool call is passed through with no
 caching (nothing to cache yet); a final answer in a tool-augmented conversation is
 committed with its `reasoning_chain` populated automatically, at no extra token cost
-and no extra model call. `stream: true` requests are pass-through only.
+and no extra model call.
+
+`stream: true` is fully supported, not merely passed through: a cache hit
+synthesizes a real SSE stream (same `choices[0].delta.content` per-chunk shape a
+live provider sends, terminated by `data: [DONE]`, indistinguishable to the
+caller); a cache miss proxies the real upstream byte stream live to the client
+while teeing it server-side into an accumulator, then commits the reassembled
+answer once the stream genuinely completes — the same commit-back guarantees as
+the non-streaming path, just triggered after the stream ends instead of after one
+buffered JSON response. A client disconnecting mid-stream is not committed (the
+answer is genuinely incomplete).
 
 ### Ingest
 
@@ -363,7 +381,29 @@ POST /ingest
 { "status": "ok", "cards": 4, "changed": true }
 ```
 
-`changed: false` — content hash unchanged; no cards re-committed.
+`changed: false` — content hash unchanged; no cards re-committed. A response of
+`cards: 0, changed: false` can mean two different things: distinguish them via the
+optional `warning` field, present only when the file was read but produced zero
+extractable chunks (e.g. a scanned/image-only PDF) — absent when the file was
+genuinely already up to date.
+
+### Smart Read
+
+```
+GET /smart-read?path=/absolute/path/to/document.md&namespace=optional
+```
+
+Cache-first alternative to reading a document directly: checks the store before
+the caller reads the file itself.
+
+```json
+{ "cache_hit": true, "card": { "...": "full ReasoningCard" }, "anchor_index": [] }
+```
+
+On a miss (`cache_hit: false`), `card` is omitted and `anchor_index` returns the
+document's structural section map instead — the same anchor data `agent_handoff`
+routes on `/resolve` use — so the caller still gets a guided starting point rather
+than a blank slate.
 
 ### Commit
 
@@ -377,18 +417,47 @@ POST /commit
   "committed_by": "optional — e.g. agent:workflow-1",
   "reasoning_chain": ["optional", "steps"],
   "depends_on": ["optional-card-uuid"],
-  "tokens_used": 0
+  "tokens_used": 0,
+  "indexable": true
 }
 ```
 
 Returns `card_id`, `card_hash` (BLAKE3), `depends_on_edges`, `tokens_used`.
 
+`indexable` (default `true`) — set to `false` for a case-specific, PII-bearing
+terminal decision that must be audit-recorded but must never surface via recall for
+a different question or caller. The card still commits normally — full audit trail,
+`depends_on` edges, `/cards/:id/audit` — it is only excluded from FTS5 indexing,
+embedding indexing, and RelatedTo peer-linking.
+
 ### Purge
 
 ```
 POST /purge
-{ "source_path": "path/to/document.md" }
+{ "source_path": "path/to/document.md", "force": false }
 ```
+
+A purge that would cascade-invalidate 50 or more cards (following `depends_on`
+edges transitively) is rejected with `409` and a `{ "would_purge": N, "threshold": 50 }`
+body unless `force: true` is included — a deliberate safeguard against an
+accidental or automated wide purge silently triggering a large wave of concurrent
+cache-miss regenerations. Routine re-ingestion (`/ingest` on a changed file) always
+forces its own internal purge automatically; this confirmation only applies to the
+explicit, admin-invoked `/purge` call.
+
+### Flush Cache
+
+```
+POST /flush-cache
+```
+
+```json
+{ "status": "flushed" }
+```
+
+Clears the in-memory fast-lane (exact-repeat) cache only. Persisted cards are
+never touched — the next identical query re-populates the fast lane on its next
+resolve, served from the same durable card either way.
 
 ### Stats
 
@@ -437,6 +506,25 @@ Every recorded serve of this specific card — timestamp, route, and caller iden
 — distinct from the cumulative `recall_count` on the card itself.
 
 ```
+GET /cards/{id}/dependents
+```
+
+Answers "who relied on this card": every other card that named it in `depends_on`,
+across any number of independent workflow runs that recalled it. Same
+namespace-scoping rule as `/cards/:id/audit` — requires `audit_read_any` to fan
+out across namespaces.
+
+```json
+{
+  "card_id": "uuid", "question": "...",
+  "dependents": [
+    { "card_id": "uuid", "question": "...", "namespace": "...",
+      "committed_by": "...", "run_id": "...", "committed_at": "..." }
+  ]
+}
+```
+
+```
 GET /recall-events?caller=<substring>&since=<timestamp>&limit=<n>
 ```
 
@@ -445,13 +533,18 @@ Searchable log across every recall event on the server, not scoped to one card.
 ### Supersession Governance
 
 ```
-GET  /supersession/candidates          — list pending candidates
-POST /supersession/confirm             — mark old document cards superseded (requires supersession_approve)
-POST /supersession/reject              — suppress this document pair permanently (requires supersession_approve)
+GET  /supersession/candidates                — list pending candidates
+GET  /supersession/candidates/{id}/diff      — section-level diff between the candidate's old/new document, for human review
+POST /supersession/confirm                    — mark old document cards superseded (requires supersession_approve)
+POST /supersession/reject                     — suppress this document pair permanently (requires supersession_approve)
+GET  /audit/supersession                      — full audit log of past confirm/reject decisions
 ```
 
-Confirm and reject both write an immutable audit record before returning.
-A candidate that has already been confirmed or rejected cannot be acted on again.
+The diff endpoint is read-only and does not change what `/confirm` invalidates
+(still whole-document) — it just shows a reviewer where to look. Confirm and
+reject both write an immutable audit record before returning, retrievable later
+via `/audit/supersession`. A candidate that has already been confirmed or
+rejected cannot be acted on again.
 
 ### Regulatory Acknowledgment
 
@@ -469,7 +562,13 @@ compliance obligations are their responsibility, not SCE's.
 ```
 GET /debug/triage           — subsystem health detail, gate config, card/centroid counts
 GET /debug/scoring-export   — last 500 scoring traces from the optimization log ring buffer
+GET /debug/server-log?level=warn&limit=200 — tail of today's server log, filterable to WARN/ERROR only
 ```
+
+`/debug/server-log` is a demo-grade "is anything wrong" view for a non-engineer
+operator (CTO/CISO): it reads the same rotating `sce-server.<date>.log` file the
+server already writes, not a separate tracing layer. Returns `404` if file
+logging isn't enabled (`log_dir` unset in config).
 
 ### MCP
 

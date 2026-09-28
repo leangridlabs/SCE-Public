@@ -163,21 +163,27 @@ Two MCP tools are exposed: `resolve` (query the cache) and `ingest_document` (ad
 | `/mcp` | POST | MCP Streamable HTTP (JSON-RPC 2.0) |
 | `/v1/chat/completions` | POST | OpenAI-wire-compatible gateway — cache-hit synthesis or real-provider passthrough + auto-commit |
 | `/resolve` | POST | Query the cache — returns route + card + `audit_url` on hit |
+| `/smart-read` | GET | Cache-first document read: returns the best matching card if warm, otherwise a structural anchor index |
 | `/ingest` | POST | Chunk and index a document file |
 | `/commit` | POST | Directly commit a reasoning card |
 | `/purge` | POST | Remove all cards for a source document |
 | `/annotate` | POST | Attach a symbol-level anchor fact to a card |
+| `/flush-cache` | POST | Clear the in-memory fast-lane cache (does not touch persisted cards) |
 | `/cards` | GET | List committed cards |
 | `/cards/{id}/audit` | GET | Full provenance + integrity check for a single card |
+| `/cards/{id}/dependents` | GET | Every downstream card/decision that depended on this card, across any workflow run |
 | `/cards/{id}/recall-events` | GET | Every recorded serve of one card — who received it, and when |
 | `/recall-events` | GET | Searchable log across all recall events (filter by caller / time range) |
 | `/stats` | GET | Live token savings and hit-rate telemetry |
 | `/supersession/candidates` | GET | List pending supersession candidates |
+| `/supersession/candidates/{id}/diff` | GET | Section-level diff between a candidate's old and new document, for human review |
 | `/supersession/confirm` | POST | Mark old-document cards superseded (requires `supersession_approve`) |
 | `/supersession/reject` | POST | Suppress document pair permanently (requires `supersession_approve`) |
+| `/audit/supersession` | GET | Full audit log of past supersession confirm/reject decisions |
 | `/acknowledge-regulatory-responsibility` | POST | Record operator regulatory acknowledgment |
 | `/debug/triage` | GET | Subsystem health detail and gate configuration |
 | `/debug/scoring-export` | GET | Last 500 scoring traces from the optimization log |
+| `/debug/server-log` | GET | Tail of today's server log (WARN/ERROR filterable) — quick "is anything wrong" view for a non-engineer operator |
 
 Full API reference: [ARCHITECTURE.md](ARCHITECTURE.md#api-reference)
 
@@ -228,11 +234,10 @@ Cold-miss lookup overhead: ~12–18 ms before forwarding to the model provider.
 
 ## Status
 
-**Stage 1 — Developer Alpha.** In-room group testing- Complete.
-**Stage 2 — Beta 1.** Initial Rust server install and demo script pass- Complete
-**Stage 3 — Beta 2.** Full Orchestration runs against server- Targeted for October
-    -Currently running soak test and stress test to prepare for Beta 2
-
-Enterprise pilot planned for late 2026 pending alpha evidence report.
+**Alpha and Beta complete** (core engine hardened, then full server/agent-workflow
+verification including a real 2-VM hosted soak test under continuous multi-agent
+load). Now in direct enterprise conversations and development-partnership
+discovery ahead of pilot deployments — no fixed pilot date; timing depends on
+those conversations, not a countdown.
 
 Contact: [leangridlabs.com](https://leangridlabs.com)
