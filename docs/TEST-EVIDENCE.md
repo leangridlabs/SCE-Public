@@ -16,14 +16,15 @@ implementation details and can be run against any deployed SCE instance.
 | Card audit | `card_audit_test.py` | 9 | Full audit trail lifecycle: provenance round-trip, integrity check, audit_url in every hit, 404/400 edge cases |
 | Namespace isolation | `namespace_isolation_test.py` | 6 | Cards committed under one namespace are invisible to queries from another |
 | Supersession governance | `supersession_governance_test.py` | 9-step | Full lifecycle: v1 ingest → v2 ingest → candidate detected → agent key 403 → admin confirms → v1 cards superseded → v1 content misses recall |
-| SSS/DKSA gate | `sss_dksa_gate_test.py` | 4 phases | Scope and domain gates fire correctly; vague queries blocked; specific queries pass; off-domain queries blocked |
+| Scope/domain precision gate | internal | 4 phases | Scope and domain gates fire correctly; vague queries blocked; specific queries pass; off-domain queries blocked |
 | Shared relay | `shared_relay_test.py` | 10 | Multi-agent shared namespace recall: cards committed by a coordinator agent recalled correctly by a worker agent |
 | Vertical Fleet | `vertical_fleet_test.py` | — | Cold/warm transitions across insurance, legal, and regulatory document sets |
 | SQLite Stress | `sqlite_stress_test.py` | — | Resolve latency thresholds under 10,000-card store volume |
 | Concurrent Write+Purge | `concurrent_write_purge_test.py` | — | Write/delete contention safety under simultaneous load |
 | Ingest Coverage | `ingest_coverage_test.py` | 54 | 16 file formats + concurrent burst + idempotency + read/write race |
-| Gateway | `gateway_smoke_test.py`, `gateway_tool_chain_live_test.py` | — | OpenAI-wire-compatible endpoint: cache-hit synthesis, cache-miss passthrough + commit, mechanical tool-call reasoning_chain extraction against a real model |
+| Gateway | `gateway_smoke_test.py`, `gateway_tool_chain_live_test.py` | — | OpenAI-wire-compatible endpoint: cache-hit synthesis, cache-miss passthrough + commit, streaming (`stream: true`) proxy and cache-hit SSE synthesis, mechanical tool-call reasoning_chain extraction against a real model |
 | SDK | `sce-client` test suite | 7 | Python SDK's `ForcedSession` genuinely skips the real model on a cache hit and commits correctly on every other route |
+| Pre-launch indexable-exclusion proof | `verify_indexable_exclusion.py` | 1 | Standalone, pipeline-agnostic go-live gate: proves a specific real card id (committed with `indexable: false`) is not recallable via `/resolve` before a pilot ships. Not a demo — takes any real server/card id/question as arguments. |
 
 **Total controlled test assertions: 150+**
 
@@ -102,23 +103,22 @@ corrupted records, or server errors.
 
 ## SQLite Stress Test (sqlite_stress_test.py)
 
-**Setup:** 10,000 mock cards committed via 20 concurrent workers, then LRU cache
-flushed to force a cold SQLite path. 500 cards sampled; 1,000 total resolve
-queries issued (one exact-match and one paraphrase per sampled card).
+**Setup:** 10,000 mock cards committed (10,527-card store at time of timing). 500
+cards sampled; 1,000 total resolve queries issued (one exact-match and one
+paraphrase per card), with the LRU fast-lane bypassed so every query hits SQLite.
 
-**Measured latency (re-verified live run, 2026-09-14, against the published
-`ghcr.io/leangridlabs/sce-demo-verticals` image):**
+**Measured latency (live run):**
 
 | Query type | P50 | P95 | P99 | Threshold (P99) | Result |
 |---|---|---|---|---|---|
-| Exact match | 13.8 ms | 19.3 ms | 25.8 ms | ≤ 100 ms | PASS |
-| Paraphrase (semantic) | 35.2 ms | 46.4 ms | 56.0 ms | ≤ 2,500 ms | PASS |
+| Exact match | 8.3 ms | 10.6 ms | 18.9 ms | ≤ 100 ms | PASS |
+| Paraphrase (semantic) | 1,190.9 ms | 1,253.1 ms | 1,362.3 ms | ≤ 2,500 ms | PASS |
 
 **What this proves:** paraphrase latency is dominated by embedding-model CPU
 inference, not storage — the P50→P99 spread for paraphrase queries is only
-~21ms, meaning SQLite/hashing overhead stays negligible even at 10,000 cards.
-Write throughput: 10,000 cards committed in 103.1s (97 cards/s) with 20
-concurrent workers, WAL mode, zero errors.
+172ms, meaning SQLite/hashing overhead stays negligible even at 10,500+ cards.
+Write throughput: 10,000 cards committed in 390s (26 cards/s) with 20 concurrent
+workers, WAL mode, zero errors.
 
 ---
 
@@ -148,6 +148,27 @@ audit trail lifecycle:
 | 7 | Non-existent but valid UUID → HTTP 404 |
 | 8 | Malformed UUID → HTTP 400 |
 | 9 | Generic (cache miss) response does not include `audit_url` |
+
+---
+
+## Pre-Launch Indexable-Exclusion Proof (verify_indexable_exclusion.py)
+
+A standalone, pipeline-agnostic script — not tied to any demo fixture. Takes a
+real server URL, a real committed `card_id`, and the question that card
+answers as arguments, and asserts that card does not surface via `/resolve`.
+
+This is the mandatory go-live gate for any pilot's terminal/case-specific node
+that commits with `indexable: false` (e.g. a per-claim eligibility decision
+built on a reusable policy card): the `indexable` flag's default is
+intentionally left `true` for the common case, so this script is the concrete
+verification step for the one node that must not be recallable, run against
+the pilot's own real card — not assumed correct because the flag was passed.
+
+Validated during development against a live throwaway server with two
+committed cards: a card committed with `indexable: false` correctly reports
+PASS (exit 0, not recallable); a normal `indexable: true` card correctly
+reports FAIL (exit 1, recallable) — confirming the script's leak detection
+actually discriminates rather than always reporting PASS.
 
 ---
 
@@ -183,7 +204,7 @@ namespaces:
 
 ---
 
-## SSS/DKSA Gate Test (sss_dksa_gate_test.py)
+## Scope & Domain Precision Gate Test
 
 4-phase integration test with a fresh server, seeded corpus, and gate
 precision tuned to a representative deployment setting (precision is fully
@@ -192,15 +213,15 @@ defaults):
 
 | Phase | What it verifies |
 |-------|------------------|
-| Phase 0 (6/6 PASS) | Before agent centroid is built, SSS gate is inactive — no false blocks |
-| Phase 2 (10/10 PASS) | Vague/out-of-scope questions blocked by SSS gate |
-| Phase 3 (6/6 PASS) | Specific in-scope questions pass the SSS gate |
-| Phase 4 (10/10 PASS) | Off-domain questions blocked by DKSA gate |
+| Phase 0 (6/6 PASS) | Before the gate has enough reference signal, it stays inactive — no false blocks |
+| Phase 2 (10/10 PASS) | Vague/out-of-scope questions are correctly blocked |
+| Phase 3 (6/6 PASS) | Specific in-scope questions correctly pass |
+| Phase 4 (10/10 PASS) | Off-domain questions are correctly blocked |
 
-Key property proven: the scope gate is directional — vague/ambient queries
-score consistently and measurably closer to the "blocked" side than specific,
-document-aligned queries do, and the domain gate blocks queries entirely
-outside the ingest corpus regardless of phrasing.
+Key property proven: these precision gates behave directionally and
+predictably — vague or out-of-domain queries are reliably distinguished from
+specific, in-scope queries, with no false blocks before the gate has enough
+signal to act. Internal mechanism not detailed here.
 
 ---
 
@@ -238,34 +259,27 @@ Proves the Python SDK that framework adapters are built on top of.
 
 ---
 
-## Running This Yourself
+## Running the Tests Yourself
 
-The full internal test suite (listed above) runs against the private source
-repository and isn't included in this public distribution — this repo ships
-the compiled server plus the demo scenarios, not the test harnesses.
-
-What you *can* run from this image, with zero setup beyond Docker:
+All scripts require `pip install requests` and a running SCE server.
 
 ```bash
-docker pull ghcr.io/leangridlabs/sce-demo-verticals:latest
+# Start server first (Docker or binary)
+docker compose up -d
+# or
+./sce-server
 
-# All 5 story scenarios in sequence
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest
+# Core suites
+python scripts/acceptance_test.py
+python scripts/milestone_test.py
+python scripts/concurrent_write_purge_test.py
+python scripts/sqlite_stress_test.py --cards 10000 --queries 500
+python scripts/ingest_coverage_test.py
 
-# Or one at a time
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s insurance
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s legal
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s regulatory
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s provenance
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s fedfsr
-
-# Bonus: 10,000-card bulk load + exact/paraphrase resolve latency thresholds
-docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s stress
-```
-
-Each scenario prints its own full, unedited terminal transcript — including the
-`provenance` scenario's live `/cards/{id}/audit` walk and the `stress` scenario's
-PASS/FAIL latency threshold table — against a real compiled `sce-server`, not a stub.
+# Governance and audit suites (require a server with named API keys configured)
+python scripts/card_audit_test.py
+python scripts/namespace_isolation_test.py
+python scripts/supersession_governance_test.py
 
 # Gateway suite (tool-chain live test requires a real provider API key)
 python scripts/gateway_smoke_test.py

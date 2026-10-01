@@ -64,6 +64,7 @@ never stores or needs the caller's provider API key.
 
 - **Cache hit** — an OpenAI-shaped response is synthesized locally, zero upstream calls, zero tokens billed.
 - **Cache miss** — forwarded to the real provider, the real response is captured and committed, and returned to the caller unmodified.
+- **Streaming (`stream: true`) works too** — a cache hit synthesizes a real SSE stream (same per-chunk shape a live provider sends); a cache miss proxies the real upstream stream live to the caller while committing the reassembled answer once it completes. No separate code path for streaming vs. non-streaming callers.
 - Works transparently through nested/multi-orchestrator stacks, since every layer eventually converges on the same outbound HTTP call.
 
 ---
@@ -101,8 +102,7 @@ docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s fedfsr
 docker run --rm ghcr.io/leangridlabs/sce-demo-verticals:latest -s stress
 ```
 
-**With real OpenAI reasoning** (insurance/legal/regulatory/provenance support
-this — otherwise they fall back to clearly-labeled simulated answers):
+**With real OpenAI reasoning** (insurance/legal/regulatory/provenance support this — otherwise they fall back to clearly-labeled simulated answers):
 
 ```bash
 # PowerShell (Windows)
@@ -114,20 +114,11 @@ export OPENAI_API_KEY="sk-..."
 docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY ghcr.io/leangridlabs/sce-demo-verticals:latest -s insurance
 ```
 
-The key is only ever passed at container-launch time via the environment —
-it is never baked into the image and never touches SCE's own storage layer.
+The key is only ever passed at container-launch time via the environment — it is never baked into the image and never touches SCE's own storage layer.
 
-The VS Code extension (Alpha) is available as a `.vsix` on the
-[Releases](https://github.com/leangridlabs/SCE-Public/releases) page. **Note:**
-the VSIX and the Rust `sce-server` (this Docker image) are two different
-products sharing the same caching approach — the VSIX does **not** include the
-human-auditable provenance/audit-trail endpoints (`/cards/{id}/audit`,
-`integrity_verified` tamper detection) shown in the `provenance` scenario
-above. That capability is currently Rust-server-only.
+The VS Code extension (Alpha) is available as a `.vsix` on the [Releases](https://github.com/leangridlabs/SCE-Public/releases) page. **Note:** the VSIX and the Rust `sce-server` (this Docker image) are two different products sharing the same caching approach — the VSIX does **not** include the human-auditable provenance/audit-trail endpoints (`/cards/{id}/audit`, `integrity_verified` tamper detection) shown in the `provenance` scenario above. That capability is currently Rust-server-only.
 
-For a self-hosted deployment (your own config, API keys, and data directory),
-contact [leangridlabs.com](https://leangridlabs.com) — this repo is a public
-distribution front door, not the deployable source package.
+For a self-hosted deployment (your own config, API keys, and data directory), contact [leangridlabs.com](https://leangridlabs.com) — this repo is a public distribution front door, not the deployable source package.
 
 ---
 
@@ -235,9 +226,9 @@ Cold-miss lookup overhead: ~12–18 ms before forwarding to the model provider.
 ## Status
 
 **Alpha and Beta complete** (core engine hardened, then full server/agent-workflow
-verification including a real 2-VM hosted soak test under continuous multi-agent
+verification, including a real 2-VM hosted soak test under continuous multi-agent
 load). Now in direct enterprise conversations and development-partnership
-discovery ahead of pilot deployments — no fixed pilot date; timing depends on
-those conversations, not a countdown.
+discovery ahead of pilot deployments — timing depends on those conversations,
+not a fixed date.
 
 Contact: [leangridlabs.com](https://leangridlabs.com)

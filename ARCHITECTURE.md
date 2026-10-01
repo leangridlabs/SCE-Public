@@ -86,19 +86,10 @@ Latency on a warm 10,000-card store: ~12–18 ms including tiers 1–3.
 ### Tier 4 — Semantic gate scoring
 
 Cards that pass the lexical gate are scored against the query embedding using
-cosine similarity. Two configurable precision gates apply at this tier,
-evaluated via proprietary cosine-density thresholds calibrated across
-enterprise document domains:
-
-- **Cosine precision gate** — the primary similarity floor. Cards below the
-  threshold are rejected.
-- **Agent scope gate (SSS)** — measures alignment between the query and the
-  centroid of cards already committed by this agent. Prevents recall from
-  answering questions that are outside the established scope of the current
-  session or agent. Configurable per deployment (disableable).
-- **Domain knowledge gate (DKSA)** — measures alignment between the query and
-  the centroid of the ingest corpus. Rejects queries that fall outside the
-  document domain entirely. Configurable per deployment (disableable).
+cosine similarity, plus several additional precision gates layered on top of
+raw similarity to suppress false-positive recalls (e.g. out-of-scope or
+out-of-domain queries). The specific gating mechanisms are proprietary and
+not detailed here.
 
 Precision is tunable on an integer scale — higher values are more
 conservative. The shipped defaults are calibrated for a mixed general corpus;

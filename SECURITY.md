@@ -39,7 +39,7 @@ namespace (the data silo the key can access), and an optional permission list.
 "compliance_admin": {
     "secret":      "...",
     "namespace":   "compliance",
-    "permissions": ["supersession_approve"]
+    "permissions": ["supersession_approve", "audit_read_any"]
 }
 ```
 
@@ -128,9 +128,14 @@ If the stored hash does not match the recomputed hash, the card is flagged
 result. This detects in-place database tampering or storage corruption.
 
 Every cache-hit response from `POST /resolve` and the `/v1/chat/completions`
-gateway includes an `audit_url` field. Calling `GET /cards/{id}/audit` with a
-valid API key returns all provenance fields, current card status (`active` or
-`superseded`), and the `integrity_verified` boolean.
+gateway includes an `audit_url` field. Calling `GET /cards/{id}/audit` returns
+all provenance fields, current card status (`active` or `superseded`), and the
+`integrity_verified` boolean — **scoped to the caller's own namespace**. A key
+from a different namespace receives HTTP 403 unless it holds the
+`audit_read_any` permission, since this endpoint is where excluded-from-recall,
+potentially PII-bearing (`indexable: false`, see below) content actually lives;
+cross-namespace access is a deliberate, named grant, not incidental to whichever
+keys happen to exist.
 
 **Recall events are logged separately from card provenance.** In addition to
 the cumulative `recall_count` on a card, every individual serve is written as
@@ -141,7 +146,37 @@ unavailable.
 
 Test coverage: acceptance_test.py Pattern 9 (trusted card round-trip) and
 Pattern 10 (DB-level answer mutation → `integrity_verified: false`).
-Full audit endpoint coverage: card_audit_test.py (9 steps).
+Full audit endpoint coverage: card_audit_test.py (9 steps) plus a dedicated
+namespace-scoping test covering same-namespace access, cross-namespace denial,
+and cross-namespace access via `audit_read_any`.
+
+---
+
+## Excluding Case-Specific Content From Recall (`indexable`)
+
+A committed card defaults to `indexable: true` — fully searchable via FTS5,
+embedding similarity, and RelatedTo graph linking, exactly like every other
+card. Setting `indexable: false` at commit time is the mechanism for
+case-specific, PII-bearing terminal decisions that must be audit-recorded but
+must never surface via recall for a different question or a different caller —
+for example, one specific claimant's eligibility decision, built on top of a
+reusable, fully-indexable policy-terms card.
+
+A non-indexable card is not a lesser or hidden record — it is fully committed,
+fully queryable by ID, fully linked via `depends_on` graph edges, and fully
+visible through `GET /cards/{id}/audit` (subject to the namespace scoping
+above). It is excluded from exactly three things: FTS5 indexing, embedding
+indexing, and bidirectional RelatedTo peer-linking — the three paths through
+which a *different* question or caller could otherwise surface it.
+
+The flag's default is intentionally left `true` rather than made fail-safe by
+design — defaulting every card to non-recallable would break the common case
+for the overwhelming majority of nodes that correctly want caching. The
+mitigation is procedural: before any real pilot goes live, the terminal
+node(s) that should commit with `indexable: false` must be verified directly —
+`scripts/verify_indexable_exclusion.py` proves a specific card id is not
+recallable, and is meant to be run as a mandatory pre-launch gate, not a
+nice-to-have test.
 
 ---
 
@@ -169,17 +204,21 @@ namespace B.
 
 ---
 
-## Key Management (Planned)
+## Key Management
 
-Ed25519-based card/attestation signing is on the roadmap — **not yet built or
-shipped**. The design intent is for private signing keys to never be stored
-in plaintext on disk or embedded in the binary, integrating with the host's
-native key store (AWS KMS, Azure Key Vault, or OS Keychain) once implemented.
-Nothing below this line reflects current, shipped behavior.
+The ed25519 private key used to sign committed cards (`card_signing_key` in
+server config) is a base64-encoded value, loaded once at startup and held
+in-memory for the life of the process. Signing happens entirely in-process
+at commit time — no external network call — and the key material is never
+written to any log or response payload.
 
-The demo `regulatory` scenario's attestation "signature" today is a local
-SHA-256 hash computed in the demo script itself, illustrating the intended
-chain-of-custody shape — it is not the planned Ed25519/KMS implementation.
+It is currently supplied the same way any other project secret is handled:
+kept out of version control, injected via config/environment, analogous to
+a `.env` value. It is **not** yet integrated with a managed secret store (AWS
+KMS, Azure Key Vault, or an OS keychain), and there is no key-rotation
+mechanism or HTTP endpoint to verify a signature externally. This is a known,
+disclosed hardening item, not yet built — treat it accordingly rather than as
+a substitute for an external HSM-backed signing service.
 
 ---
 
@@ -224,8 +263,17 @@ For enterprise deployments with multiple developer instances:
 
 - **Retention policies** are distributed as signed config files to local instances.
 - **Offboarding** is handled via `POST /purge` with the employee's namespace.
-  The endpoint cryptographically validates the purge request and removes all
-  associated cards, graph edges, and section facts.
+  The endpoint removes all associated cards, graph edges, and section facts for
+  the given source path.
+- **Cascade-scale confirmation gate**: a purge that would cascade-invalidate 50
+  or more cards (following `depends_on` edges transitively) is rejected with
+  `409` and a `{ "would_purge": N, "threshold": 50 }` body unless the request
+  includes `"force": true`. This is a deliberate safeguard against an
+  accidental or automated wide purge silently triggering a large wave of
+  concurrent cache-miss regenerations against the operator's real LLM.
+  Routine re-ingestion (`/ingest` on a changed file) always forces its own
+  internal purge automatically — this gate only applies to the explicit,
+  admin-invoked `/purge` call.
 - **Audit trails** are available through the `committed_by` and `reasoning_chain`
   fields on every card, queryable via `/cards`.
 
