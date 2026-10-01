@@ -50,6 +50,7 @@ without installing a plugin or SDK.
   point it at a cloud provider and only that provider ever sees the request. Nothing
   ties SCE itself to any cloud dependency.
 - **Savings compound** — every agent handoff that produces an answer commits it back. The next agent asking an equivalent question pays zero. The ratio improves with use.
+- **Fully auditable** — every committed card carries a provenance record (who committed it, which model produced it, the reasoning steps taken, source documents read, and what it depends on). A BLAKE3 content hash is reverified on every read, so tampering is detected rather than silently served. Every individual serve is itself logged (`/cards/{id}/recall-events`), and optional ed25519 signing adds a cryptographic signature to each card's content hash. See [SECURITY.md](SECURITY.md) for the full provenance and tamper-detection model.
 
 ---
 
